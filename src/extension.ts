@@ -165,7 +165,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
 				// Validate repo structure (check that at least one content folder exists)
 				try {
-					const cats = ['chatmodes', 'instructions', 'prompts', 'agents'];
+					const cats = ['collections', 'instructions', 'prompts', 'agents'];
 					const foundFolders: string[] = [];
 					const missingFolders: string[] = [];
 
@@ -386,7 +386,7 @@ export async function activate(context: vscode.ExtensionContext) {
 						});
 
 						const retryChoice = await vscode.window.showErrorMessage(
-							`🔍 Repository Not Found or No Valid Content\n\nThe repository ${owner}/${repo} was not found or doesn't contain any of the required content folders (chatmodes, instructions, prompts).\n\nPlease verify:\n1. Repository exists at: ${repoUrl}\n2. Repository is public or you have access\n3. Repository contains at least one of: chatmodes, instructions, or prompts folders\n\nNote: A repository only needs to have ONE of these folders, not all of them.\n\nDebug: Input="${input}", Owner="${owner}", Repo="${repo}"`,
+							`🔍 Repository Not Found or No Valid Content\n\nThe repository ${owner}/${repo} was not found or doesn't contain any of the required content folders (collections, instructions, prompts).\n\nPlease verify:\n1. Repository exists at: ${repoUrl}\n2. Repository is public or you have access\n3. Repository contains at least one of: collections, instructions, or prompts folders\n\nNote: A repository only needs to have ONE of these folders, not all of them.\n\nDebug: Input="${input}", Owner="${owner}", Repo="${repo}"`,
 							'Check Repository',
 							'Retry',
 							'Cancel'
@@ -486,21 +486,33 @@ export async function activate(context: vscode.ExtensionContext) {
 		statusBarManager.showInfo('Repository sources updated from settings');
 	});
 
-	// Register providers
+	// Register providers - both views share the same data provider instance
 	const treeView = vscode.window.createTreeView('awesomeCopilotExplorer', {
 		treeDataProvider: treeProvider,
 		showCollapseAll: true
 	});
 
-	// Auto-preview when selecting a file
-	treeView.onDidChangeSelection(async (e) => {
+	// Register secondary view in explorer (shares same data provider)
+	const treeViewSecondary = vscode.window.createTreeView('awesomeCopilotExplorerSecondary', {
+		treeDataProvider: treeProvider,
+		showCollapseAll: true
+	});
+
+	// Trigger initial load for both views
+	treeProvider.refresh();
+
+	// Auto-preview when selecting a file (both views)
+	const handleSelection = async (e: vscode.TreeViewSelectionChangeEvent<any>) => {
 		if (e.selection.length > 0) {
 			const selectedItem = e.selection[0];
 			if (selectedItem.copilotItem) {
 				await previewCopilotItem(selectedItem.copilotItem, githubService, previewProvider);
 			}
 		}
-	});
+	};
+
+	treeView.onDidChangeSelection(handleSelection);
+	treeViewSecondary.onDidChangeSelection(handleSelection);
 
 	const previewProviderDisposable = vscode.workspace.registerTextDocumentContentProvider('copilot-preview', previewProvider);
 
@@ -698,6 +710,49 @@ export async function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
+	// Register command to open repository in browser
+	const openRepoInBrowserDisposable = vscode.commands.registerCommand('awesome-copilot.openRepoInBrowser', async (treeItem?: AwesomeCopilotTreeItem) => {
+		// If called with a specific tree item (from inline context menu), use that repo
+		if (treeItem && treeItem.itemType === 'repo' && treeItem.repo) {
+			const repo = treeItem.repo;
+			const repoUrl = repo.baseUrl ? `${repo.baseUrl}/${repo.owner}/${repo.repo}` : `https://github.com/${repo.owner}/${repo.repo}`;
+			await vscode.env.openExternal(vscode.Uri.parse(repoUrl));
+			return;
+		}
+
+		// Otherwise, fallback to the original behavior for toolbar clicks
+		const sources = RepoStorage.getSources(context);
+		if (sources.length === 0) {
+			vscode.window.showInformationMessage('No repository sources configured. Use "Manage Sources" to add one.');
+			return;
+		}
+
+		// If only one source, open it directly
+		if (sources.length === 1) {
+			const repo = sources[0];
+			const repoUrl = repo.baseUrl ? `${repo.baseUrl}/${repo.owner}/${repo.repo}` : `https://github.com/${repo.owner}/${repo.repo}`;
+			await vscode.env.openExternal(vscode.Uri.parse(repoUrl));
+			return;
+		}
+
+		// If multiple sources, let user pick which one to open
+		const selected = await vscode.window.showQuickPick(
+			sources.map(s => ({
+				label: s.label || `${s.owner}/${s.repo}`,
+				description: `${s.owner}/${s.repo}`,
+				repo: s
+			})),
+			{ placeHolder: 'Select a repository to open in browser' }
+		);
+
+		if (selected) {
+			const repoUrl = selected.repo.baseUrl 
+				? `${selected.repo.baseUrl}/${selected.repo.owner}/${selected.repo.repo}` 
+				: `https://github.com/${selected.repo.owner}/${selected.repo.repo}`;
+			await vscode.env.openExternal(vscode.Uri.parse(repoUrl));
+		}
+	});
+
 	context.subscriptions.push(
 		refreshDisposable,
 		downloadDisposable,
@@ -712,8 +767,10 @@ export async function activate(context: vscode.ExtensionContext) {
 		hideTreeViewDisposable,
 		signInToGitHubDisposable,
 		signOutFromGitHubDisposable,
+		openRepoInBrowserDisposable,
 		configChangeDisposable,
 		treeView,
+		treeViewSecondary,
 		previewProviderDisposable,
 		statusBarManager
 	);

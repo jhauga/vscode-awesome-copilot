@@ -14,7 +14,7 @@
   },
   "qna": "https://github.com/timheuer/vscode-awesome-copilot/issues",
   "homepage": "https://github.com/timheuer/vscode-awesome-copilot",
-  "description": "Browse and download instructions, prompts, chat modes, and agents from the Awesome Copilot community",
+  "description": "Browse and download instructions, prompts, collections, and agents from the Awesome Copilot community",
   "version": "0.0.0-placeholder",
   "icon": "icon.png",
   "engines": {
@@ -45,10 +45,7 @@
         {
           "id": "awesomeCopilot",
           "title": "Awesome Copilot",
-          "icon": {
-            "light": "resources/awesome-copilot-light.svg",
-            "dark": "resources/awesome-copilot-dark.svg"
-          }
+          "icon": "resources/awesome-copilot.svg"
         }
       ]
     },
@@ -213,6 +210,11 @@
         "command": "awesome-copilot.signOutFromGitHub",
         "title": "Awesome Copilot: Sign out from GitHub",
         "icon": "$(sign-out)"
+      },
+      {
+        "command": "awesome-copilot.openRepoInBrowser",
+        "title": "Open Repository in Browser",
+        "icon": "$(github)"
       }
     ],
     "views": {
@@ -220,48 +222,69 @@
         {
           "id": "awesomeCopilotExplorer",
           "name": "Awesome Copilot",
-          "when": "config.awesome-copilot.showTreeView",
-          "icon": "$(copilot)"
+          "icon": "icon.png"
+        }
+      ],
+      "explorer": [
+        {
+          "id": "awesomeCopilotExplorerSecondary",
+          "name": "Awesome Copilot",
+          "icon": "$(robot)"
         }
       ]
     },
+    "viewsWelcome": [
+      {
+        "view": "awesomeCopilotExplorer",
+        "contents": "No repositories configured.\n[Manage Sources](command:awesome-copilot.manageSources)\nBrowse and download instructions, prompts, collections, and agents from the Awesome Copilot community."
+      },
+      {
+        "view": "awesomeCopilotExplorerSecondary",
+        "contents": "No repositories configured.\n[Manage Sources](command:awesome-copilot.manageSources)\nBrowse and download instructions, prompts, collections, and agents from the Awesome Copilot community."
+      }
+    ],
     "menus": {
       "view/title": [
         {
           "command": "awesome-copilot.refreshAwesomeCopilot",
-          "when": "view == awesomeCopilotExplorer",
-          "group": "navigation"
+          "when": "view == awesomeCopilotExplorer || view == awesomeCopilotExplorerSecondary",
+          "group": "navigation@2"
         },
         {
           "command": "awesome-copilot.manageSources",
-          "when": "view == awesomeCopilotExplorer",
-          "group": "navigation"
+          "when": "view == awesomeCopilotExplorer || view == awesomeCopilotExplorerSecondary",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [
         {
           "command": "awesome-copilot.downloadItem",
-          "when": "view == awesomeCopilotExplorer && viewItem == copilotFile",
+          "when": "(view == awesomeCopilotExplorer || view == awesomeCopilotExplorerSecondary) && viewItem == copilotFile",
           "group": "inline@1"
         },
         {
           "command": "awesome-copilot.previewItem",
-          "when": "view == awesomeCopilotExplorer && viewItem == copilotFile",
+          "when": "(view == awesomeCopilotExplorer || view == awesomeCopilotExplorerSecondary) && viewItem == copilotFile",
           "group": "inline@2"
         },
         {
-          "command": "awesome-copilot.refreshRepo",
-          "when": "view == awesomeCopilotExplorer && viewItem == copilotRepo",
+          "command": "awesome-copilot.openRepoInBrowser",
+          "when": "(view == awesomeCopilotExplorer || view == awesomeCopilotExplorerSecondary) && viewItem == copilotRepo",
           "group": "inline@1"
         },
         {
-          "command": "awesome-copilot.removeRepo",
-          "when": "view == awesomeCopilotExplorer && viewItem == copilotRepo",
+          "command": "awesome-copilot.refreshRepo",
+          "when": "(view == awesomeCopilotExplorer || view == awesomeCopilotExplorerSecondary) && viewItem == copilotRepo",
           "group": "inline@2"
         },
         {
           "command": "awesome-copilot.removeRepo",
-          "when": "view == awesomeCopilotExplorer && viewItem == copilotRepo",
+          "when": "(view == awesomeCopilotExplorer || view == awesomeCopilotExplorerSecondary) && viewItem == copilotRepo",
+          "group": "inline@3"
+        },
+        {
+          "command": "awesome-copilot.removeRepo",
+          "when": "(view == awesomeCopilotExplorer || view == awesomeCopilotExplorerSecondary) && viewItem == copilotRepo",
           "group": "1_repo@1"
         }
       ]
