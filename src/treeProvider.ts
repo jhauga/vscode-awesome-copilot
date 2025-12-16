@@ -3,17 +3,18 @@ import { GitHubService } from './githubService';
 import { CopilotItem, CopilotCategory, CATEGORY_LABELS, GitHubFile, RepoSource } from './types';
 import { RepoStorage } from './repoStorage';
 import { getLogger } from './logger';
+import { SearchBar } from './searchBar';
 
 export class AwesomeCopilotTreeItem extends vscode.TreeItem {
     public readonly copilotItem?: CopilotItem;
     public readonly category?: CopilotCategory;
     public readonly repo?: RepoSource;
-    public readonly itemType: 'repo' | 'category' | 'file';
+    public readonly itemType: 'repo' | 'category' | 'file' | 'search';
 
     constructor(
         label: string,
         collapsibleState: vscode.TreeItemCollapsibleState,
-        itemType: 'repo' | 'category' | 'file',
+        itemType: 'repo' | 'category' | 'file' | 'search',
         copilotItem?: CopilotItem,
         category?: CopilotCategory,
         repo?: RepoSource
@@ -24,7 +25,16 @@ export class AwesomeCopilotTreeItem extends vscode.TreeItem {
         this.category = category;
         this.repo = repo;
 
-        if (itemType === 'file' && copilotItem) {
+        if (itemType === 'search') {
+            this.contextValue = 'copilotSearch';
+            this.iconPath = new vscode.ThemeIcon('search');
+            this.command = {
+                command: 'awesome-copilot.searchFiles',
+                title: 'Search Files'
+            };
+            this.description = '';
+            this.tooltip = 'Click to search/filter files';
+        } else if (itemType === 'file' && copilotItem) {
             this.contextValue = 'copilotFile';
             this.resourceUri = vscode.Uri.parse(copilotItem.file.download_url);
             this.description = `${(copilotItem.file.size / 1024).toFixed(1)}KB`;
@@ -67,9 +77,24 @@ export class AwesomeCopilotProvider implements vscode.TreeDataProvider<AwesomeCo
     private repoItems: Map<string, Map<CopilotCategory, CopilotItem[]>> = new Map();
     private loading: Set<string> = new Set();
     private context: vscode.ExtensionContext | undefined;
+    private searchBar: SearchBar;
 
     constructor(private githubService: GitHubService, context?: vscode.ExtensionContext) {
         this.context = context;
+        this.searchBar = new SearchBar();
+        
+        // Listen to search changes and refresh the tree
+        this.searchBar.onSearchChange(() => {
+            getLogger().debug('[TreeProvider] Search term changed, refreshing tree view');
+            this._onDidChangeTreeData.fire();
+        });
+    }
+
+    /**
+     * Get the SearchBar instance for external access
+     */
+    public getSearchBar(): SearchBar {
+        return this.searchBar;
     }
 
     refresh(): void {
@@ -227,7 +252,10 @@ export class AwesomeCopilotProvider implements vscode.TreeDataProvider<AwesomeCo
             // Return files for the category in this repository
             const items = await this.getItemsForRepoAndCategory(element.repo, element.category);
 
-            return items.map(item =>
+            // Apply search filter if active
+            const filteredItems = this.searchBar.filterItems(items);
+
+            return filteredItems.map(item =>
                 new AwesomeCopilotTreeItem(
                     item.name,
                     vscode.TreeItemCollapsibleState.None,

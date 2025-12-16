@@ -6,9 +6,9 @@ A VS Code extension that provides an explorer view to browse, preview, and downl
 
 ## User Journey
 
-1. **Open Explorer View**: User opens the "Awesome Copilot" view in the VS Code Explorer panel
+1. **Open Explorer View**: User opens the "Awesome Copilot" view in the VS Code Activity Bar
 2. **Browse Categories**: User sees four expandable sections: Collections, Instructions, Prompts, and Agents
-3. **Filter Content**: User types in filter textbox to narrow down items by filename
+3. **Search Content**: User types in search bar to filter items across all categories by filename in real-time
 4. **Preview Item**: User clicks on an item to see name and content preview
 5. **Select for Download**: User clicks download button on desired item
 6. **Confirm Download**: System prompts user to confirm download location and filename
@@ -32,13 +32,14 @@ A VS Code extension that provides an explorer view to browse, preview, and downl
      - [ ] Manual refresh button updates cached data
      - [ ] Graceful error handling for network failures
 
-3. **FR-03**: File Filtering
-   - **Description**: Filter textbox at top of each category section to filter by filename
+3. **FR-03**: File Search
+   - **Description**: Search bar at top of view to filter files across all categories by filename
    - **Acceptance Criteria**:
-     - [ ] Filter textbox appears above each category's file list
-     - [ ] Typing filters files in real-time based on filename match
-     - [ ] Filter is case-insensitive
-     - [ ] Clear filter button resets to show all files
+     - [x] Search bar appears at top of tree view
+     - [x] Typing filters files in real-time based on filename match across all categories
+     - [x] Search is case-insensitive
+     - [x] Clear search button resets to show all files
+     - [x] Search results maintain category structure
 
 4. **FR-04**: Content Preview
    - **Description**: Display filename and content preview when item is selected
@@ -52,9 +53,9 @@ A VS Code extension that provides an explorer view to browse, preview, and downl
    - **Description**: Download selected files to appropriate workspace folders
    - **Acceptance Criteria**:
      - [ ] Download button/icon appears for each file item
-     - [ ] Collections save to `.github/copilot-collections/`
+     - [ ] Collections save to `.github/collections/`
      - [ ] Instructions save to `.github/instructions/`
-     - [ ] Prompts save to `.github/copilot-prompts/`
+     - [ ] Prompts save to `.github/prompts/`
      - [ ] Agents save to `.github/agents/`
      - [ ] Creates folders if they don't exist
 

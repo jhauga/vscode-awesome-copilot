@@ -29,13 +29,13 @@
       "activitybar": [
         {
           "id": "awesomeCopilot",
-          "title": "Awesome Copilot",
+          "title": "Awesome Copilot (clone)",
           "icon": "resources/awesome-copilot.svg"
         }
       ]
     },
     "configuration": {
-      "title": "Awesome Copilot",
+      "title": "Awesome Copilot (clone)",
       "properties": {
         "awesome-copilot.repositories": {
           "type": "array",
@@ -45,7 +45,7 @@
             {
               "owner": "github",
               "repo": "awesome-copilot",
-              "label": "Awesome Copilot"
+              "label": "Awesome Copilot (clone)"
             }
           ],
           "items": {
@@ -200,21 +200,45 @@
         "command": "awesome-copilot.openRepoInBrowser",
         "title": "Open Repository in Browser",
         "icon": "$(github)"
+      },
+      {
+        "command": "awesome-copilot.searchFiles",
+        "title": "Search/Filter Files",
+        "icon": "$(search)"
+      },
+      {
+        "command": "awesome-copilot.clearSearch",
+        "title": "Clear Search Filter",
+        "icon": "$(clear-all)"
       }
     ],
     "views": {
       "awesomeCopilot": [
         {
+          "type": "webview",
+          "id": "awesomeCopilotSearch",
+          "name": "Search Awesome Copilot",
+          "icon": "$(search)",
+          "visibility": "visible"
+        },
+        {
           "id": "awesomeCopilotExplorer",
-          "name": "Awesome Copilot",
+          "name": "GitHub / awesome-copilot",
           "icon": "icon.png"
         }
       ],
       "explorer": [
         {
+          "type": "webview",
+          "id": "awesomeCopilotSearchSecondary",
+          "name": "Search Awesome Copilot",
+          "icon": "$(search)",
+          "visibility": "visible"
+        },
+        {
           "id": "awesomeCopilotExplorerSecondary",
-          "name": "Awesome Copilot",
-          "icon": "$(robot)"
+          "name": "Awesome Copilot (clone)",
+          "icon": "$(list-tree)"
         }
       ]
     },

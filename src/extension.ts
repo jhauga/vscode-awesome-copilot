@@ -9,6 +9,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { RepoStorage } from './repoStorage';
 import { StatusBarManager } from './statusBarManager';
+import { SearchViewProvider } from './searchPanel';
 import axios from 'axios';
 import * as https from 'https';
 import { createLogger, createLoggerWithConfigMonitoring, Logger } from '@timheuer/vscode-ext-logger';
@@ -486,6 +487,22 @@ export async function activate(context: vscode.ExtensionContext) {
 		statusBarManager.showInfo('Repository sources updated from settings');
 	});
 
+	// Register search webview provider for Activity Bar view
+	const searchViewProvider = new SearchViewProvider(context.extensionUri, treeProvider.getSearchBar());
+	const searchView = vscode.window.registerWebviewViewProvider('awesomeCopilotSearch', searchViewProvider, {
+		webviewOptions: {
+			retainContextWhenHidden: true
+		}
+	});
+
+	// Register search webview provider for File Explorer view (shares same SearchBar)
+	const searchViewProviderSecondary = new SearchViewProvider(context.extensionUri, treeProvider.getSearchBar());
+	const searchViewSecondary = vscode.window.registerWebviewViewProvider('awesomeCopilotSearchSecondary', searchViewProviderSecondary, {
+		webviewOptions: {
+			retainContextWhenHidden: true
+		}
+	});
+
 	// Register providers - both views share the same data provider instance
 	const treeView = vscode.window.createTreeView('awesomeCopilotExplorer', {
 		treeDataProvider: treeProvider,
@@ -753,6 +770,16 @@ export async function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
+	// Register search/filter commands
+	const searchFilesDisposable = vscode.commands.registerCommand('awesome-copilot.searchFiles', async () => {
+		await treeProvider.getSearchBar().showSearchInput();
+	});
+
+	const clearSearchDisposable = vscode.commands.registerCommand('awesome-copilot.clearSearch', () => {
+		treeProvider.getSearchBar().clearSearch();
+		statusBarManager.showSuccess('Search filter cleared');
+	});
+
 	context.subscriptions.push(
 		refreshDisposable,
 		downloadDisposable,
@@ -768,7 +795,11 @@ export async function activate(context: vscode.ExtensionContext) {
 		signInToGitHubDisposable,
 		signOutFromGitHubDisposable,
 		openRepoInBrowserDisposable,
+		searchFilesDisposable,
+		clearSearchDisposable,
 		configChangeDisposable,
+		searchView,
+		searchViewSecondary,
 		treeView,
 		treeViewSecondary,
 		previewProviderDisposable,

@@ -1,31 +1,41 @@
 # Awesome GitHub Copilot Browser
 
-[![VS Marketplace Badge](https://img.shields.io/visual-studio-marketplace/v/timheuer.vscode-awesome-copilot?label=VS%20Code%20Marketplace&color=brightgreen&logo=visualstudiocode)](https://marketplace.visualstudio.com/items?itemName=TimHeuer.vscode-awesome-copilot)
+Source Extension [![VS Marketplace](https://img.shields.io/visual-studio-marketplace/v/timheuer.vscode-awesome-copilot?label=VS%20Code%20Marketplace&color=brightgreen&logo=visualstudiocode)](https://marketplace.visualstudio.com/items?itemName=TimHeuer.awesome-copilot)
 
 A VS Code extension that allows you to browse, preview, and download GitHub Copilot customizations from the [awesome-copilot repository](https://github.com/github/awesome-copilot).
 
 ## Features
 
 - **🔍 Browse**: Explore collections, instructions, prompts, and agents in a convenient tree view
+- **� Search**: Quickly find files with real-time filtering across all categories
 - **📖 Preview**: View file content before downloading
 - **⬇️ Download**: Save files to appropriate `.github/` folders in your workspace
 - **🔃 Refresh**: Update repository data with manual refresh
 - **💾 Caching**: Smart caching for better performance
 
+### Browse and Search
+
+![Search Feature Demo](resources/searchFeature.gif)
+
+### Cache Control, Download, Preview, and Refresh
+
+![features.png](/resources/features.png)
+
 ## How to Use
 
 1. **Open the Extension**: Click the new Activity Bar icon (checkmark document) titled **Awesome Copilot**. (Previously this view appeared under Explorer; it now has its own dedicated container with a proper icon.)
-2. **Browse Categories**: Expand Collections, Instructions, Prompts, or Agents sections
-3. **Preview Content**: Click the preview icon on any file to see its content
-4. **Download Files**: Click the download icon to save files to your workspace
-5. **Refresh Data**: Click the refresh icon in the view title to update repository data
+2. **Search Files**: Use the search bar at the top to filter files across all categories in real-time
+3. **Browse Categories**: Expand Collections, Instructions, Prompts, or Agents sections
+4. **Preview Content**: Click the preview icon on any file to see its content
+5. **Download Files**: Click the download icon to save files to your workspace
+6. **Refresh Data**: Click the refresh icon in the view title to update repository data
 
 ## Folder Structure
 
 Downloaded files are organized in your workspace as follows:
 
 - **Collections** → `.github/collections/`
-- **Instructions** → `.github/instructions/`  
+- **Instructions** → `.github/instructions/`
 - **Prompts** → `.github/prompts/`
 - **Agents** → `.github/agents/`
 
@@ -61,7 +71,7 @@ npm install
 npm run compile
 ```
 
-### Testing  
+### Testing
 
 ```bash
 npm run test
@@ -77,3 +87,7 @@ The extension contributes a custom Activity Bar view container named **Awesome C
 If you previously dragged the old Explorer-based view into the Activity Bar and saw a generic label/icon, this update fixes that by supplying a dedicated container with themed icons (light/dark).
 
 **Enjoy browsing and using awesome GitHub Copilot customizations!**
+
+## License
+
+MIT
