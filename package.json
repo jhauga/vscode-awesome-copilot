@@ -1,7 +1,7 @@
 {
   "name": "awesome-copilot",
-  "displayName": "Awesome Copilot",
-  "publisher": "timheuer",
+  "displayName": "Awesome Copilot (clone)",
+  "publisher": "jhauga",
   "author": {
     "name": "Tim Heuer"
   },
@@ -10,31 +10,16 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/timheuer/vscode-awesome-copilot"
+    "url": "https://github.com/jhauga/vscode-awesome-copilot"
   },
   "qna": "https://github.com/timheuer/vscode-awesome-copilot/issues",
-  "homepage": "https://github.com/timheuer/vscode-awesome-copilot",
-  "description": "Browse and download instructions, prompts, collections, and agents from the Awesome Copilot community",
-  "version": "0.0.0-placeholder",
+  "homepage": "https://github.com/jhauga/vscode-awesome-copilot",
+  "description": "Browse and download instructions, prompts, collections, and agents from the Awesome Copilot community. Clone of timheuer/vscode-awesome-copilot.",
+  "version": "0.1.23-fork.0",
   "icon": "icon.png",
   "engines": {
     "vscode": "^1.103.0"
   },
-  "badges": [
-    {
-      "url": "https://img.shields.io/visual-studio-marketplace/v/timheuer.vscode-awesome-copilot?label=VS%20Code%20Marketplace&color=brightgreen&logo=visualstudiocode",
-      "href": "https://marketplace.visualstudio.com/items?itemName=TimHeuer.vscode-awesome-copilot",
-      "description": "Current Version"
-    },
-    {
-      "url": "https://github.com/timheuer/vscode-awesome-copilot/actions/workflows/build.yaml/badge.svg",
-      "href": "https://github.com/timheuer/vscode-awesome-copilot/actions/workflows/build.yaml",
-      "description": "Build Status"
-    }
-  ],
-  "categories": [
-    "Other"
-  ],
   "activationEvents": [
     "onView:awesomeCopilotExplorer"
   ],
