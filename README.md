@@ -1,6 +1,6 @@
 # Awesome GitHub Copilot Browser
 
-Source Extension [![VS Marketplace](https://img.shields.io/visual-studio-marketplace/v/timheuer.vscode-awesome-copilot?label=VS%20Code%20Marketplace&color=brightgreen&logo=visualstudiocode)](https://marketplace.visualstudio.com/items?itemName=TimHeuer.awesome-copilot)
+Source Extension [![VS Marketplace](https://img.shields.io/visual-studio-marketplace/v/timheuer.awesome-copilot?label=VS%20Code%20Marketplace&color=brightgreen&logo=visualstudiocode)](https://marketplace.visualstudio.com/items?itemName=TimHeuer.awesome-copilot)
 
 A VS Code extension that allows you to browse, preview, and download GitHub Copilot customizations from the [awesome-copilot repository](https://github.com/github/awesome-copilot).
 
@@ -13,7 +13,7 @@ A VS Code extension that allows you to browse, preview, and download GitHub Copi
 - **🔃 Refresh**: Update repository data with manual refresh
 - **💾 Caching**: Smart caching for better performance
 
-| Browse and Search | | Cache Control, Download, Preview, and Refresh |
+| Browse and Search | | Cache Management, Download, Preview, and Refresh |
 | --- | --- | --- |
 | ![Search Feature Demo](resources/searchFeature.gif) |  | ![features.png](/resources/features.png) |
 
