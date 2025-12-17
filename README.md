@@ -13,13 +13,9 @@ A VS Code extension that allows you to browse, preview, and download GitHub Copi
 - **🔃 Refresh**: Update repository data with manual refresh
 - **💾 Caching**: Smart caching for better performance
 
-### Browse and Search
-
-![Search Feature Demo](resources/searchFeature.gif)
-
-### Cache Control, Download, Preview, and Refresh
-
-![features.png](/resources/features.png)
+| Browse and Search | | Cache Control, Download, Preview, and Refresh |
+| --- | --- | --- |
+| ![Search Feature Demo](resources/searchFeature.gif) |  | ![features.png](/resources/features.png) |
 
 ## How to Use
 
