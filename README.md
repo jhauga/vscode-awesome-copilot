@@ -6,7 +6,7 @@ A VS Code extension that allows you to browse, preview, and download GitHub Copi
 
 ## Features
 
-- **🔍 Browse**: Explore collections, instructions, prompts, and agents in a convenient tree view
+- **🔍 Browse**: Explore chat modes, instructions, prompts, agents, and skills in a convenient tree view
 - **� Search**: Quickly find files with real-time filtering across all categories
 - **📖 Preview**: View file content before downloading
 - **⬇️ Download**: Save files to appropriate `.github/` folders in your workspace
@@ -21,7 +21,7 @@ A VS Code extension that allows you to browse, preview, and download GitHub Copi
 
 1. **Open the Extension**: Click the new Activity Bar icon (checkmark document) titled **Awesome Copilot**. (Previously this view appeared under Explorer; it now has its own dedicated container with a proper icon.)
 2. **Search Files**: Use the search bar at the top to filter files across all categories in real-time
-3. **Browse Categories**: Expand Collections, Instructions, Prompts, or Agents sections
+3. **Browse Categories**: Expand Collections, Instructions, Prompts, Agents, or Skills sections
 4. **Preview Content**: Click the preview icon on any file to see its content
 5. **Download Files**: Click the download icon to save files to your workspace
 6. **Refresh Data**: Click the refresh icon in the view title to update repository data
@@ -34,8 +34,11 @@ Downloaded files are organized in your workspace as follows:
 - **Instructions** → `.github/instructions/`
 - **Prompts** → `.github/prompts/`
 - **Agents** → `.github/agents/`
+- **Skills** → `.github/skills/` (entire folders with SKILL.md and supporting files)
 
 These folders will be created automatically if they don't exist.
+
+**Note:** Skills are unique in that each skill is a complete folder containing a `SKILL.md` file and potentially other supporting files. When you download a skill, the entire folder structure is preserved.
 
 ## Requirements
 
