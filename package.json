@@ -15,7 +15,7 @@
   "qna": "https://github.com/timheuer/vscode-awesome-copilot/issues",
   "homepage": "https://github.com/jhauga/vscode-awesome-copilot",
   "description": "Browse and download instructions, prompts, collections, and agents from the Awesome Copilot community. Clone of timheuer/vscode-awesome-copilot.",
-  "version": "0.1.28-fork.0",
+  "version": "0.1.40-fork.0",
   "icon": "icon.png",
   "engines": {
     "vscode": "^1.103.0"
@@ -133,6 +133,12 @@
           "description": "Set the logging level for the Awesome Copilot extension",
           "scope": "application",
           "title": "Log Level"
+        },
+        "awesome-copilot.checkForUpdates": {
+          "type": "boolean",
+          "default": true,
+          "description": "Check for updates to downloaded items and notify when newer versions are available",
+          "scope": "application"
         }
       }
     },

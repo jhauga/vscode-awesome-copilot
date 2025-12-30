@@ -70,6 +70,29 @@ export class GitHubService {
         }
     }
 
+    // Check if we have authentication available (silent check)
+    private async checkAuthentication(): Promise<boolean> {
+        try {
+            const config = vscode.workspace.getConfiguration('awesome-copilot');
+            
+            // Check for enterprise token
+            const enterpriseToken = config.get<string>('enterpriseToken');
+            if (enterpriseToken) {
+                return true;
+            }
+
+            // Check for GitHub session
+            const session = await vscode.authentication.getSession('github', ['repo'], {
+                createIfNone: false,
+                silent: true
+            });
+            
+            return !!session;
+        } catch (error) {
+            return false;
+        }
+    }
+
     // Handle authentication-related HTTP errors
     private async handleAuthError(error: any, isEnterprise: boolean = false): Promise<boolean> {
         const isAxiosError = error && typeof error === 'object' && 'response' in error;
@@ -86,10 +109,12 @@ export class GitHubService {
 
             // Check if this is a rate limit issue
             const rateLimitRemaining = error.response?.headers['x-ratelimit-remaining'];
-            if (rateLimitRemaining === '0') {
-                const resetTime = error.response?.headers['x-ratelimit-reset'];
-                if (resetTime) {
-                    const resetDate = new Date(parseInt(resetTime) * 1000);
+            const rateLimitReset = error.response?.headers['x-ratelimit-reset'];
+            
+            if (rateLimitRemaining === '0' || rateLimitRemaining === 0) {
+                // Definitely rate limited
+                if (rateLimitReset) {
+                    const resetDate = new Date(parseInt(rateLimitReset) * 1000);
                     const waitMinutes = Math.ceil((resetDate.getTime() - Date.now()) / (60 * 1000));
                     this.statusBarManager.showWarning(`Rate limit exceeded. Resets in ${waitMinutes} minutes.`);
                     
@@ -105,9 +130,10 @@ export class GitHubService {
                     }
                 }
             } else {
-                // Other authentication error
+                // 403 without rate limit = likely needs authentication for this resource
+                const errorMessage = error.response?.data?.message || 'Authentication required';
                 const authChoice = await vscode.window.showErrorMessage(
-                    'GitHub authentication failed. Sign in to access private repositories and increase rate limits.',
+                    `GitHub API error: ${errorMessage}. Sign in to access repositories and increase rate limits (60 → 5,000 requests/hour).`,
                     'Sign In',
                     'Skip'
                 );
@@ -156,8 +182,9 @@ export class GitHubService {
     // Create request headers with proper authentication for GitHub
     private async createRequestHeaders(isEnterprise: boolean = false): Promise<Record<string, string>> {
         const headers: Record<string, string> = {
-            'User-Agent': 'VSCode-AwesomeCopilot-Extension',
-            'Accept': 'application/vnd.github.v3+json'
+            'User-Agent': 'VSCode-AwesomeCopilot-Extension/1.0.0',
+            'Accept': 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28'
         };
 
         // Try to authenticate for all GitHub requests (both public and enterprise)
@@ -179,7 +206,7 @@ export class GitHubService {
                 // Priority 1: Check for configured enterprise token
                 const enterpriseToken = config.get<string>('enterpriseToken');
                 if (enterpriseToken) {
-                    headers['Authorization'] = `token ${enterpriseToken}`;
+                    headers['Authorization'] = `Bearer ${enterpriseToken}`;
                     return headers;
                 }
             }
@@ -191,7 +218,7 @@ export class GitHubService {
                     silent: true
                 });
                 if (session && session.accessToken) {
-                    headers['Authorization'] = `token ${session.accessToken}`;
+                    headers['Authorization'] = `Bearer ${session.accessToken}`;
                     return headers;
                 }
             } catch (authError) {
@@ -209,6 +236,21 @@ export class GitHubService {
         if (context) {
             try { sources = RepoStorage.getSources(context); } catch { }
         }
+        
+        // Proactively check for authentication to avoid 403 errors
+        const config = vscode.workspace.getConfiguration('awesome-copilot');
+        const enableAuth = config.get<boolean>('enableGithubAuth', true);
+        
+        if (enableAuth) {
+            // Check if we have any authentication
+            const hasAuth = await this.checkAuthentication();
+            if (!hasAuth) {
+                // Prompt for authentication before making requests
+                getLogger().info('No GitHub authentication found, prompting user...');
+                await this.ensureGitHubAuth(false);
+            }
+        }
+        
         const now = Date.now();
         let allFiles: GitHubFile[] = [];
         for (const repo of sources) {
@@ -363,10 +405,24 @@ export class GitHubService {
             return cacheEntry.data;
         }
 
+        // Proactively check for authentication to avoid 403 errors (same as getFiles)
+        const config = vscode.workspace.getConfiguration('awesome-copilot');
+        const enableAuth = config.get<boolean>('enableGithubAuth', true);
+        const isEnterprise = !!repo.baseUrl;
+        
+        if (enableAuth && !isEnterprise) {
+            // Check if we have any authentication for public GitHub
+            const hasAuth = await this.checkAuthentication();
+            if (!hasAuth) {
+                // Prompt for authentication before making requests
+                getLogger().info('No GitHub authentication found, prompting user...');
+                await this.ensureGitHubAuth(false);
+            }
+        }
+
         try {
             // Support GitHub Enterprise Server URLs
             const apiUrl = this.buildApiUrl(repo, category);
-            const isEnterprise = !!repo.baseUrl;
             const headers = await this.createRequestHeaders(isEnterprise);
 
             const axiosConfig: any = {
@@ -386,26 +442,53 @@ export class GitHubService {
             }
 
             let response;
-            const config = vscode.workspace.getConfiguration('awesome-copilot');
             const allowInsecureEnterpriseCerts = config.get<boolean>('allowInsecureEnterpriseCerts', false);
 
-            if (isEnterprise && allowInsecureEnterpriseCerts) {
-                // Temporary global TLS override for this specific enterprise request
-                const originalRejectUnauthorized = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
-                process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+            try {
+                if (isEnterprise && allowInsecureEnterpriseCerts) {
+                    // Temporary global TLS override for this specific enterprise request
+                    const originalRejectUnauthorized = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+                    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
-                try {
-                    response = await axios.get<GitHubFile[]>(apiUrl, axiosConfig);
-                } finally {
-                    // Restore original setting immediately
-                    if (originalRejectUnauthorized === undefined) {
-                        delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
-                    } else {
-                        process.env.NODE_TLS_REJECT_UNAUTHORIZED = originalRejectUnauthorized;
+                    try {
+                        response = await axios.get<GitHubFile[]>(apiUrl, axiosConfig);
+                    } finally {
+                        // Restore original setting immediately
+                        if (originalRejectUnauthorized === undefined) {
+                            delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+                        } else {
+                            process.env.NODE_TLS_REJECT_UNAUTHORIZED = originalRejectUnauthorized;
+                        }
                     }
+                } else {
+                    response = await axios.get<GitHubFile[]>(apiUrl, axiosConfig);
                 }
-            } else {
-                response = await axios.get<GitHubFile[]>(apiUrl, axiosConfig);
+            } catch (requestError) {
+                // Handle authentication errors and retry (same pattern as getFiles)
+                const authRetried = await this.handleAuthError(requestError, isEnterprise);
+                if (authRetried) {
+                    // Retry with new authentication
+                    const newHeaders = await this.createRequestHeaders(isEnterprise);
+                    axiosConfig.headers = newHeaders;
+                    
+                    if (isEnterprise && allowInsecureEnterpriseCerts) {
+                        const originalRejectUnauthorized = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+                        process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+                        try {
+                            response = await axios.get<GitHubFile[]>(apiUrl, axiosConfig);
+                        } finally {
+                            if (originalRejectUnauthorized === undefined) {
+                                delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+                            } else {
+                                process.env.NODE_TLS_REJECT_UNAUTHORIZED = originalRejectUnauthorized;
+                            }
+                        }
+                    } else {
+                        response = await axios.get<GitHubFile[]>(apiUrl, axiosConfig);
+                    }
+                } else {
+                    throw requestError;
+                }
             }
 
             // For Skills category, show directories (folders); for other categories, show files
@@ -680,18 +763,28 @@ export class GitHubService {
         getLogger().info(`Cleared cache for repository: ${repo.owner}/${repo.repo}`);
     }
 
-    getCacheStatus(): string {
-        const entries = Array.from(this.cache.entries());
-        if (entries.length === 0) {
-            return 'Cache empty';
-        }
+	// Clear cache for a specific category in a repository
+	clearCategoryCache(repo: RepoSource, category: CopilotCategory): void {
+		const repoKey = `${repo.baseUrl || 'github.com'}/${repo.owner}/${repo.repo}`;
+		const cacheKey = `${repoKey}|${category}`;
+		
+		if (this.cache.has(cacheKey)) {
+			this.cache.delete(cacheKey);
+			getLogger().debug(`Cleared cache for ${category} in ${repo.owner}/${repo.repo}`);
+		}
+	}
+	getCacheStatus(): string {
+		const entries = Array.from(this.cache.entries());
+		if (entries.length === 0) {
+			return 'Cache empty';
+		}
 
-        const now = Date.now();
-        const status = entries.map(([category, entry]) => {
-            const age = Math.floor((now - entry.timestamp) / (60 * 1000)); // minutes
-            return `${category}: ${entry.data.length} files (${age}m old)`;
-        }).join(', ');
+		const now = Date.now();
+		const status = entries.map(([category, entry]) => {
+			const age = Math.floor((now - entry.timestamp) / (60 * 1000)); // minutes
+			return `${category}: ${entry.data.length} files (${age}m old)`;
+		}).join(', ');
 
-        return status;
-    }
+		return status;
+	}
 }

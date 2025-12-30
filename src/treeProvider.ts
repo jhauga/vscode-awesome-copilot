@@ -4,6 +4,7 @@ import { CopilotItem, CopilotCategory, CATEGORY_LABELS, GitHubFile, RepoSource }
 import { RepoStorage } from './repoStorage';
 import { getLogger } from './logger';
 import { SearchBar } from './searchBar';
+import { DownloadTracker } from './downloadTracker';
 
 export class AwesomeCopilotTreeItem extends vscode.TreeItem {
     public readonly copilotItem?: CopilotItem;
@@ -17,7 +18,8 @@ export class AwesomeCopilotTreeItem extends vscode.TreeItem {
         itemType: 'repo' | 'category' | 'file' | 'search',
         copilotItem?: CopilotItem,
         category?: CopilotCategory,
-        repo?: RepoSource
+        repo?: RepoSource,
+        downloadTracker?: DownloadTracker
     ) {
         super(label, collapsibleState);
         this.itemType = itemType;
@@ -36,11 +38,16 @@ export class AwesomeCopilotTreeItem extends vscode.TreeItem {
             this.tooltip = 'Click to search/filter files';
         } else if (itemType === 'file' && copilotItem) {
             this.contextValue = 'copilotFile';
+            
+            // Check if this item has an update available
+            const hasUpdate = downloadTracker?.hasUpdate(copilotItem) || false;
+            const isDownloaded = downloadTracker?.isDownloaded(copilotItem.id) || false;
+            
             // Skills are folders, not individual files
             if (copilotItem.category === CopilotCategory.Skills && copilotItem.file.type === 'dir') {
-                this.description = 'Skill Folder';
+                this.description = hasUpdate ? '🔄 Update Available' : 'Skill Folder';
                 this.tooltip = new vscode.MarkdownString(
-                    `**${copilotItem.name}**\n\nType: Skill Folder\nRepo: ${copilotItem.repo ? copilotItem.repo.owner + '/' + copilotItem.repo.repo : ''}\n\nClick to preview or download entire skill folder`
+                    `**${copilotItem.name}**\n\nType: Skill Folder\nRepo: ${copilotItem.repo ? copilotItem.repo.owner + '/' + copilotItem.repo.repo : ''}${hasUpdate ? '\n\n⚠️ **Update Available** - A newer version is available on the remote repository.' : ''}\n\nClick to preview or download entire skill folder`
                 );
                 this.iconPath = new vscode.ThemeIcon('folder');
             } else {
@@ -59,22 +66,33 @@ export class AwesomeCopilotTreeItem extends vscode.TreeItem {
                 }
                 
                 // Set appropriate icon based on category
+                // If update available, use a badge/indicator overlay on the icon
+                let baseIconId: string;
                 switch (copilotItem.category) {
                     case CopilotCategory.Collections:
-                        this.iconPath = new vscode.ThemeIcon('comment-discussion');
+                        baseIconId = 'comment-discussion';
                         break;
                     case CopilotCategory.Instructions:
-                        this.iconPath = new vscode.ThemeIcon('book');
+                        baseIconId = 'book';
                         break;
                     case CopilotCategory.Prompts:
-                        this.iconPath = new vscode.ThemeIcon('lightbulb');
+                        baseIconId = 'lightbulb';
                         break;
                     case CopilotCategory.Agents:
-                        this.iconPath = new vscode.ThemeIcon('robot');
+                        baseIconId = 'robot';
                         break;
                     case CopilotCategory.Skills:
-                        this.iconPath = new vscode.ThemeIcon('tools');
+                        baseIconId = 'tools';
                         break;
+                    default:
+                        baseIconId = 'file';
+                }
+                
+                // Use cloud-download icon with color indicator if update is available
+                if (hasUpdate) {
+                    this.iconPath = new vscode.ThemeIcon('cloud-download', new vscode.ThemeColor('notificationsWarningIcon.foreground'));
+                } else {
+                    this.iconPath = new vscode.ThemeIcon(baseIconId);
                 }
             }
         } else if (itemType === 'category') {
@@ -99,9 +117,11 @@ export class AwesomeCopilotProvider implements vscode.TreeDataProvider<AwesomeCo
     private loading: Set<string> = new Set();
     private context: vscode.ExtensionContext | undefined;
     private searchBar: SearchBar;
+    private downloadTracker: DownloadTracker | undefined;
 
-    constructor(private githubService: GitHubService, context?: vscode.ExtensionContext) {
+    constructor(private githubService: GitHubService, context?: vscode.ExtensionContext, downloadTracker?: DownloadTracker) {
         this.context = context;
+        this.downloadTracker = downloadTracker;
         this.searchBar = new SearchBar();
         
         // Listen to search changes and refresh the tree
@@ -126,8 +146,11 @@ export class AwesomeCopilotProvider implements vscode.TreeDataProvider<AwesomeCo
         // Fire tree data change event to refresh the UI
         this._onDidChangeTreeData.fire();
 
-        // Reload data for current repositories
-        this.loadAllReposAndCategories(true);
+        // Reload data for current repositories (wrapped to prevent state corruption)
+        this.loadAllReposAndCategories(true).catch(error => {
+            getLogger().error('Error during full tree refresh:', error);
+            // Even if loading fails, we've cleared state so subsequent attempts should work
+        });
     }
 
     // Refresh only a specific repository in the tree
@@ -136,7 +159,7 @@ export class AwesomeCopilotProvider implements vscode.TreeDataProvider<AwesomeCo
         const repoKey = `${repo.owner}/${repo.repo}`;
         this.repoItems.delete(repoKey);
         
-        // Clear loading states for this repo
+        // Clear loading states for this repo to allow fresh requests
         const loadingKeysToDelete = Array.from(this.loading).filter(key => key.startsWith(`${repoKey}-`));
         loadingKeysToDelete.forEach(key => this.loading.delete(key));
 
@@ -158,8 +181,11 @@ export class AwesomeCopilotProvider implements vscode.TreeDataProvider<AwesomeCo
             // Fire change event for just this repository tree item
             this._onDidChangeTreeData.fire(repoTreeItem);
 
-            // Preload the data for this repository
-            this.loadSingleRepo(targetRepo, true);
+            // Preload the data for this repository (wrapped in try-catch to prevent state corruption)
+            this.loadSingleRepo(targetRepo, true).catch(error => {
+                getLogger().error(`Error during repository refresh for ${repo.owner}/${repo.repo}:`, error);
+                // Even if loading fails, we've already cleared the state, so subsequent attempts should work
+            });
         }
     }
 
@@ -172,6 +198,8 @@ export class AwesomeCopilotProvider implements vscode.TreeDataProvider<AwesomeCo
 
         const repoData = this.repoItems.get(repoKey)!;
         const categories = [CopilotCategory.Collections, CopilotCategory.Instructions, CopilotCategory.Prompts, CopilotCategory.Agents, CopilotCategory.Skills];
+
+        const allItems: CopilotItem[] = [];
 
         for (const category of categories) {
             const loadingKey = `${repoKey}-${category}`;
@@ -189,6 +217,7 @@ export class AwesomeCopilotProvider implements vscode.TreeDataProvider<AwesomeCo
                         repo: repo
                     }));
                     repoData.set(category, items);
+                    allItems.push(...items);
                 } catch (error: any) {
                     // Handle different types of errors
                     const statusCode = error?.response?.status || (error?.message?.includes('404') ? 404 : undefined);
@@ -209,6 +238,9 @@ export class AwesomeCopilotProvider implements vscode.TreeDataProvider<AwesomeCo
 
         // Fire change event to update UI for this repo after all categories are loaded
         this._onDidChangeTreeData.fire();
+
+        // Check for updates if setting is enabled
+        await this.checkForUpdates(allItems);
     }
 
     getTreeItem(element: AwesomeCopilotTreeItem): vscode.TreeItem {
@@ -291,7 +323,8 @@ export class AwesomeCopilotProvider implements vscode.TreeDataProvider<AwesomeCo
                     'file',
                     item,
                     element.category,
-                    element.repo
+                    element.repo,
+                    this.downloadTracker
                 )
             );
         }
@@ -353,6 +386,9 @@ export class AwesomeCopilotProvider implements vscode.TreeDataProvider<AwesomeCo
         const repos = RepoStorage.getSources(this.context);
         const categories = [CopilotCategory.Collections, CopilotCategory.Instructions, CopilotCategory.Prompts, CopilotCategory.Agents, CopilotCategory.Skills];
 
+        // Collect all items for update checking
+        const allItems: CopilotItem[] = [];
+
         for (const repo of repos) {
             const repoKey = `${repo.owner}/${repo.repo}`;
             if (!this.repoItems.has(repoKey)) {
@@ -372,6 +408,7 @@ export class AwesomeCopilotProvider implements vscode.TreeDataProvider<AwesomeCo
                         repo: repo
                     }));
                     repoData.set(category, items);
+                    allItems.push(...items);
                 } catch (error: any) {
                     // Handle different types of errors
                     const statusCode = error?.response?.status || (error?.message?.includes('404') ? 404 : undefined);
@@ -390,6 +427,56 @@ export class AwesomeCopilotProvider implements vscode.TreeDataProvider<AwesomeCo
         }
 
         this._onDidChangeTreeData.fire();
+
+        // Check for updates if setting is enabled
+        await this.checkForUpdates(allItems);
+    }
+
+    private async checkForUpdates(allItems: CopilotItem[]): Promise<void> {
+        // Check if update checking is enabled
+        const config = vscode.workspace.getConfiguration('awesome-copilot');
+        const checkForUpdates = config.get<boolean>('checkForUpdates', true);
+
+        if (!checkForUpdates || !this.downloadTracker) {
+            return;
+        }
+
+        try {
+            // Find items with updates
+            const itemsWithUpdates = this.downloadTracker.findItemsWithUpdates(allItems);
+
+            if (itemsWithUpdates.length > 0) {
+                // Group by category for better readability
+                const updatesByCategory: Record<string, string[]> = {};
+                for (const item of itemsWithUpdates) {
+                    const categoryLabel = CATEGORY_LABELS[item.category];
+                    if (!updatesByCategory[categoryLabel]) {
+                        updatesByCategory[categoryLabel] = [];
+                    }
+                    updatesByCategory[categoryLabel].push(item.name);
+                }
+
+                // Build notification message (plain text, no markdown)
+                let message = `📦 Updates available for ${itemsWithUpdates.length} downloaded item(s):\n\n`;
+                for (const [category, items] of Object.entries(updatesByCategory)) {
+                    message += `${category}:\n`;
+                    for (const itemName of items) {
+                        message += `  • ${itemName}\n`;
+                    }
+                }
+                message += `\nDownload again to get the latest version.`;
+
+                // Show notification
+                vscode.window.showInformationMessage(
+                    message,
+                    { modal: false }
+                );
+
+                getLogger().info(`Found ${itemsWithUpdates.length} items with updates available`);
+            }
+        } catch (error) {
+            getLogger().error('Error checking for updates:', error);
+        }
     }
 
     getItem(id: string): CopilotItem | undefined {

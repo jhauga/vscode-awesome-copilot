@@ -9,6 +9,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { RepoStorage } from './repoStorage';
 import { StatusBarManager } from './statusBarManager';
+import { DownloadTracker } from './downloadTracker';
 import { SearchViewProvider } from './searchPanel';
 import axios from 'axios';
 import * as https from 'https';
@@ -474,7 +475,8 @@ export async function activate(context: vscode.ExtensionContext) {
 	// Initialize services
 	const statusBarManager = new StatusBarManager();
 	const githubService = new GitHubService(statusBarManager);
-	const treeProvider = new AwesomeCopilotProvider(githubService, context);
+	const downloadTracker = new DownloadTracker(context);
+	const treeProvider = new AwesomeCopilotProvider(githubService, context, downloadTracker);
 	const previewProvider = new CopilotPreviewProvider();
 
 	// Initialize repository sources from settings
@@ -549,7 +551,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			vscode.window.showErrorMessage('No file selected for download');
 			return;
 		}
-		await downloadCopilotItem(treeItem.copilotItem, githubService);
+		await downloadCopilotItem(treeItem.copilotItem, githubService, downloadTracker);
 	});
 
 	// Register preview command
@@ -795,7 +797,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	);
 }
 
-async function downloadCopilotItem(item: CopilotItem, githubService: GitHubService): Promise<void> {
+async function downloadCopilotItem(item: CopilotItem, githubService: GitHubService, downloadTracker: DownloadTracker): Promise<void> {
 	try {
 		const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
 		if (!workspaceFolder) {
@@ -1002,6 +1004,12 @@ async function downloadCopilotItem(item: CopilotItem, githubService: GitHubServi
 				}
 			}
 
+			// Record the download
+			await downloadTracker.recordDownload(item);
+
+			// Clear cache for this category to force fresh metadata on next refresh
+			githubService.clearCategoryCache(item.repo, item.category);
+
 			// Show success message
 			const openFolder = await vscode.window.showInformationMessage(
 				`Successfully downloaded skill folder ${folderName}`,
@@ -1060,6 +1068,12 @@ async function downloadCopilotItem(item: CopilotItem, githubService: GitHubServi
 			const content = await githubService.getFileContent(item.file.download_url);
 			fs.writeFileSync(targetFilePath, content, 'utf8');
 
+			// Record the download with content for hash calculation
+			await downloadTracker.recordDownload(item, content);
+
+			// Clear cache for this category to force fresh metadata on next refresh
+			githubService.clearCategoryCache(item.repo, item.category);
+
 			// Show success message and offer to open file
 			const openFile = await vscode.window.showInformationMessage(
 				`Successfully downloaded ${filename}`,
@@ -1088,7 +1102,7 @@ async function previewCopilotItem(item: CopilotItem, githubService: GitHubServic
 			const skillMdFile = contents.find(f => f.name === 'SKILL.md' && f.type === 'file');
 			
 			if (skillMdFile) {
-				// Fetch SKILL.md content
+				// Always fetch fresh SKILL.md content from GitHub
 				item.content = await githubService.getFileContent(skillMdFile.download_url);
 				
 				// Create and show preview document
@@ -1122,10 +1136,8 @@ async function previewCopilotItem(item: CopilotItem, githubService: GitHubServic
 			}
 		} else {
 			// Regular file preview (for other categories)
-			// Fetch content if not already cached
-			if (!item.content) {
-				item.content = await githubService.getFileContent(item.file.download_url);
-			}
+			// Always fetch fresh content from GitHub (clear any cached content)
+			item.content = await githubService.getFileContent(item.file.download_url);
 
 			// Create and show preview document
 			const previewUri = vscode.Uri.parse(`copilot-preview:${encodeURIComponent(item.name)}`);
