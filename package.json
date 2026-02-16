@@ -14,8 +14,8 @@
   },
   "qna": "https://github.com/timheuer/vscode-awesome-copilot/issues",
   "homepage": "https://github.com/jhauga/vscode-awesome-copilot",
-  "description": "Browse and download instructions, prompts, collections, and agents from the Awesome Copilot community. Clone of timheuer/vscode-awesome-copilot.",
-  "version": "0.1.40-fork.1",
+  "description": "Browse and download instructions, prompts, plugins, and agents from the Awesome Copilot community. Clone of timheuer/vscode-awesome-copilot.",
+  "version": "0.1.40-fork.2",
   "icon": "icon.png",
   "engines": {
     "vscode": "^1.103.0"
@@ -263,11 +263,11 @@
     "viewsWelcome": [
       {
         "view": "awesomeCopilotExplorer",
-        "contents": "No repositories configured.\n[Manage Sources](command:awesome-copilot.manageSources)\nBrowse and download instructions, prompts, collections, and agents from the Awesome Copilot community."
+        "contents": "No repositories configured.\n[Manage Sources](command:awesome-copilot.manageSources)\nBrowse and download instructions, prompts, plugins, and agents from the Awesome Copilot community."
       },
       {
         "view": "awesomeCopilotExplorerSecondary",
-        "contents": "No repositories configured.\n[Manage Sources](command:awesome-copilot.manageSources)\nBrowse and download instructions, prompts, collections, and agents from the Awesome Copilot community."
+        "contents": "No repositories configured.\n[Manage Sources](command:awesome-copilot.manageSources)\nBrowse and download instructions, prompts, plugins, and agents from the Awesome Copilot community."
       }
     ],
     "menus": {
@@ -333,7 +333,6 @@
     "deploy": "vsce publish"
   },
   "devDependencies": {
-    "@types/js-yaml": "^4.0.9",
     "@types/mocha": "^10.0.10",
     "@types/node": "20.x",
     "@types/vscode": "^1.103.0",
@@ -349,7 +348,6 @@
   },
   "dependencies": {
     "@timheuer/vscode-ext-logger": "^0.1.35",
-    "axios": "^1.11.0",
-    "js-yaml": "^4.1.0"
+    "axios": "^1.11.0"
   }
 }

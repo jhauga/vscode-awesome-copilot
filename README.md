@@ -26,7 +26,7 @@ A VS Code extension that allows you to browse, preview, and download GitHub Copi
 
 1. **Open the Extension**: Click the new Activity Bar icon (checkmark document) titled **Awesome Copilot**. (Previously this view appeared under Explorer; it now has its own dedicated container with a proper icon.)
 2. **Search Files**: Use the search bar at the top to filter files across all categories in real-time
-3. **Browse Categories**: Expand Collections, Instructions, Prompts, Agents, or Skills sections
+3. **Browse Categories**: Expand Plugins, Instructions, Prompts, Agents, or Skills sections
 4. **Preview Content**: Click the preview icon on any file to see its content
 5. **Download Files**: Click the download icon to save files to your workspace
 6. **Refresh Data**: Click the refresh icon in the view title to update repository data
@@ -35,7 +35,7 @@ A VS Code extension that allows you to browse, preview, and download GitHub Copi
 
 Downloaded files are organized in your workspace as follows:
 
-- **Collections** → `.github/collections/`
+- **Plugins** → `.github/plugins/`
 - **Instructions** → `.github/instructions/`
 - **Prompts** → `.github/prompts/`
 - **Agents** → `.github/agents/`
@@ -43,7 +43,12 @@ Downloaded files are organized in your workspace as follows:
 
 These folders will be created automatically if they don't exist.
 
-**Note:** Skills are unique in that each skill is a complete folder containing a `SKILL.md` file and potentially other supporting files. When you download a skill, the entire folder structure is preserved.
+> [!NOTE]
+> Plugins are unique in that each plugin will download a collection of items from the plugin's `<plugin>/.github/plugin/plugin.json` file, and download the corresponding items to the workspace `.github` folder accordingly.
+
+> [!NOTE]
+> Skills are unique in that each skill is a complete folder containing a `SKILL.md` file and potentially other supporting files. When you download a skill, the entire folder structure is preserved.
+
 
 ## Requirements
 

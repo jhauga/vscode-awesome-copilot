@@ -2,8 +2,7 @@
 import axios from 'axios';
 import * as vscode from 'vscode';
 import * as https from 'https';
-import * as yaml from 'js-yaml';
-import { GitHubFile, CopilotCategory, CacheEntry, RepoSource, CollectionMetadata, CollectionParseResult } from './types';
+import { GitHubFile, CopilotCategory, CacheEntry, RepoSource, PluginMetadata, PluginParseResult, PLUGIN_JSON_RELATIVE_PATH } from './types';
 import { RepoStorage } from './repoStorage';
 import { StatusBarManager } from './statusBarManager';
 import { getLogger } from './logger';
@@ -334,14 +333,14 @@ export class GitHubService {
                 }
 
                 // For Skills category, show directories (folders); for other categories, show files
-                // For Collections category, show only .yml files
+                // For Plugins category, show directories (each plugin is a directory)
                 const files = (response.data as GitHubFile[])
                     .filter((file: GitHubFile) => {
                         if (category === CopilotCategory.Skills) {
                             return file.type === 'dir';
                         }
-                        if (category === CopilotCategory.Collections) {
-                            return file.type === 'file' && file.name.endsWith('.yml');
+                        if (category === CopilotCategory.Plugins) {
+                            return file.type === 'dir';
                         }
                         return file.type === 'file';
                     })
@@ -492,14 +491,14 @@ export class GitHubService {
             }
 
             // For Skills category, show directories (folders); for other categories, show files
-            // For Collections category, show only .yml files
+            // For Plugins category, show only .yml files
             const files = (response.data as GitHubFile[])
                 .filter((file: GitHubFile) => {
                     if (category === CopilotCategory.Skills) {
                         return file.type === 'dir';
                     }
-                    if (category === CopilotCategory.Collections) {
-                        return file.type === 'file' && file.name.endsWith('.yml');
+                    if (category === CopilotCategory.Plugins) {
+                        return file.type === 'dir';
                     }
                     return file.type === 'file';
                 })
@@ -581,62 +580,147 @@ export class GitHubService {
         }
     }
 
-    // Parse collection YAML file and return metadata with raw content
-    async parseCollectionYaml(downloadUrl: string): Promise<CollectionParseResult> {
+    // Fetch file content by repo-relative path using GitHub Contents API
+    async getFileContentByPath(repo: RepoSource, filePath: string): Promise<{
+        content: string;
+        download_url: string;
+        sha: string;
+        size: number;
+    }> {
         try {
-            const content = await this.getFileContent(downloadUrl);
-            const metadata = yaml.load(content) as CollectionMetadata | null;
+            const apiUrl = this.buildApiUrlForPath(repo, filePath);
+            const isEnterprise = !!repo.baseUrl;
+            const headers = await this.createRequestHeaders(isEnterprise);
 
-            // Basic structural validation of required fields
+            const axiosConfig: any = {
+                timeout: 10000,
+                headers: headers,
+                withCredentials: isEnterprise
+            };
+
+            if (isEnterprise) {
+                const httpsAgent = this.createHttpsAgent(apiUrl);
+                if (httpsAgent) {
+                    axiosConfig.httpsAgent = httpsAgent;
+                    axiosConfig.agent = httpsAgent;
+                }
+            }
+
+            let response;
+            const config = vscode.workspace.getConfiguration('awesome-copilot');
+            const allowInsecureEnterpriseCerts = config.get<boolean>('allowInsecureEnterpriseCerts', false);
+
+            if (isEnterprise && allowInsecureEnterpriseCerts) {
+                const originalRejectUnauthorized = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+                process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+                try {
+                    response = await axios.get(apiUrl, axiosConfig);
+                } finally {
+                    if (originalRejectUnauthorized === undefined) {
+                        delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+                    } else {
+                        process.env.NODE_TLS_REJECT_UNAUTHORIZED = originalRejectUnauthorized;
+                    }
+                }
+            } else {
+                response = await axios.get(apiUrl, axiosConfig);
+            }
+
+            const data = response.data;
+
+            // GitHub Contents API returns base64-encoded content for files up to 1MB
+            if (data.type === 'file' && data.content) {
+                const content = Buffer.from(data.content, data.encoding || 'base64').toString('utf8');
+                return {
+                    content,
+                    download_url: data.download_url,
+                    sha: data.sha,
+                    size: data.size
+                };
+            }
+
+            // For files >1MB, content is null but download_url is available
+            if (data.type === 'file' && data.download_url) {
+                const content = await this.getFileContent(data.download_url);
+                return {
+                    content,
+                    download_url: data.download_url,
+                    sha: data.sha,
+                    size: data.size
+                };
+            }
+
+            throw new Error(`Path "${filePath}" is not a file or has no content`);
+        } catch (error) {
+            getLogger().error(`Failed to fetch file content for path ${filePath}:`, error);
+            throw new Error(`Failed to fetch file content for path "${filePath}": ${error}`);
+        }
+    }
+
+    // Parse plugin.json file from a plugin directory and return metadata
+    async parsePluginJson(repo: RepoSource, pluginDirPath: string): Promise<PluginParseResult> {
+        try {
+            const pluginJsonPath = `${pluginDirPath}/${PLUGIN_JSON_RELATIVE_PATH}`;
+            const fileData = await this.getFileContentByPath(repo, pluginJsonPath);
+
+            let metadata: PluginMetadata;
+            try {
+                metadata = JSON.parse(fileData.content) as PluginMetadata;
+            } catch (parseError) {
+                throw new Error('Invalid plugin.json format: not valid JSON');
+            }
+
+            // Structural validation of required fields
             if (!metadata || typeof metadata !== 'object') {
-                throw new Error('Invalid collection YAML format: metadata is missing or not an object');
+                throw new Error('Invalid plugin.json format: metadata is missing or not an object');
             }
 
-            if (typeof (metadata as any).id !== 'string' || !(metadata as any).id.trim()) {
-                throw new Error('Invalid collection YAML format: missing or invalid "id" field');
+            if (typeof metadata.name !== 'string' || !metadata.name.trim()) {
+                throw new Error('Invalid plugin.json format: missing or invalid "name" field');
             }
 
-            if (typeof (metadata as any).name !== 'string' || !(metadata as any).name.trim()) {
-                throw new Error('Invalid collection YAML format: missing or invalid "name" field');
+            if (typeof metadata.description !== 'string' || !metadata.description.trim()) {
+                throw new Error('Invalid plugin.json format: missing or invalid "description" field');
             }
 
-            if (typeof (metadata as any).description !== 'string' || !(metadata as any).description.trim()) {
-                throw new Error('Invalid collection YAML format: missing or invalid "description" field');
+            if (!Array.isArray(metadata.items)) {
+                throw new Error('Invalid plugin.json format: missing or invalid "items" array');
             }
 
-            const items = (metadata as any).items;
-            if (!Array.isArray(items)) {
-                throw new Error('Invalid collection YAML format: missing or invalid "items" array');
-            }
+            const allowedKinds = ['instruction', 'prompt', 'agent', 'skill'];
 
-            items.forEach((item: any, index: number) => {
+            metadata.items.forEach((item: any, index: number) => {
                 if (!item || typeof item !== 'object') {
-                    throw new Error(`Invalid collection YAML format: item at index ${index} is not an object`);
+                    throw new Error(`Invalid plugin.json format: item at index ${index} is not an object`);
                 }
 
-                const path = (item as any).path;
-                if (typeof path !== 'string' || !path.trim()) {
-                    throw new Error(`Invalid collection YAML format: item at index ${index} is missing or has an invalid "path" field`);
+                if (typeof item.path !== 'string' || !item.path.trim()) {
+                    throw new Error(`Invalid plugin.json format: item at index ${index} is missing or has an invalid "path" field`);
                 }
 
-                const kind = (item as any).kind;
-                if (typeof kind !== 'string' || !kind.trim()) {
-                    throw new Error(`Invalid collection YAML format: item at index ${index} is missing or has an invalid "kind" field`);
+                if (typeof item.kind !== 'string' || !item.kind.trim()) {
+                    throw new Error(`Invalid plugin.json format: item at index ${index} is missing or has an invalid "kind" field`);
                 }
 
-                const allowedKinds = ['instruction', 'prompt', 'agent', 'skill'];
-                if (!allowedKinds.includes(kind)) {
+                if (!allowedKinds.includes(item.kind)) {
                     throw new Error(
-                        `Invalid collection YAML format: item at index ${index} has unsupported "kind" value "${kind}". ` +
+                        `Invalid plugin.json format: item at index ${index} has unsupported "kind" value "${item.kind}". ` +
                         `Allowed kinds are: ${allowedKinds.join(', ')}`
                     );
                 }
             });
-            return { metadata: metadata as CollectionMetadata, rawContent: content };
+
+            // Derive id from directory name if not present in JSON
+            if (!metadata.id || typeof metadata.id !== 'string') {
+                const pathParts = pluginDirPath.split('/');
+                metadata.id = pathParts[pathParts.length - 1];
+            }
+
+            return { metadata, rawContent: fileData.content };
         } catch (error) {
-            getLogger().error('Failed to parse collection YAML:', error);
+            getLogger().error('Failed to parse plugin.json:', error);
             const errorMessage = error instanceof Error ? error.message : String(error);
-            throw new Error(`Failed to parse collection YAML: ${errorMessage}`);
+            throw new Error(`Failed to parse plugin.json: ${errorMessage}`);
         }
     }
 

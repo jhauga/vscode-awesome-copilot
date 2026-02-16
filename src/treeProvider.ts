@@ -51,21 +51,31 @@ export class AwesomeCopilotTreeItem extends vscode.TreeItem {
             const hasUpdate = downloadTracker?.hasUpdate(copilotItem) || false;
             const isDownloaded = downloadTracker?.isDownloaded(copilotItem.id) || false;
             
-            // Skills are folders, not individual files
+            // Skills and Plugins are folders, not individual files
             if (copilotItem.category === CopilotCategory.Skills && copilotItem.file.type === 'dir') {
                 this.description = hasUpdate ? '🔄 Update Available' : 'Skill Folder';
                 this.tooltip = new vscode.MarkdownString(
                     `**${copilotItem.name}**\n\nType: Skill Folder\nRepo: ${copilotItem.repo ? copilotItem.repo.owner + '/' + copilotItem.repo.repo : ''}${hasUpdate ? '\n\n⚠️ **Update Available** - A newer version is available on the remote repository.' : ''}\n\nClick to preview or download entire skill folder`
                 );
                 this.iconPath = new vscode.ThemeIcon('folder');
+            } else if (copilotItem.category === CopilotCategory.Plugins && copilotItem.file.type === 'dir') {
+                this.description = hasUpdate ? '🔄 Update Available' : 'Plugin';
+                this.tooltip = new vscode.MarkdownString(
+                    `**${copilotItem.name}**\n\nType: Plugin\nRepo: ${copilotItem.repo ? copilotItem.repo.owner + '/' + copilotItem.repo.repo : ''}${hasUpdate ? '\n\n⚠️ **Update Available** - A newer version is available on the remote repository.' : ''}\n\nClick to preview or download plugin`
+                );
+                if (hasUpdate) {
+                    this.iconPath = new vscode.ThemeIcon('cloud-download', new vscode.ThemeColor('notificationsWarningIcon.foreground'));
+                } else {
+                    this.iconPath = new vscode.ThemeIcon('package');
+                }
             } else {
                 this.resourceUri = vscode.Uri.parse(copilotItem.file.download_url);
                 this.description = `${(copilotItem.file.size / 1024).toFixed(1)}KB`;
                 
-                // Collections are special - they contain multiple files
-                if (copilotItem.category === CopilotCategory.Collections) {
+                // Plugins are special - they contain multiple files
+                if (copilotItem.category === CopilotCategory.Plugins) {
                     this.tooltip = new vscode.MarkdownString(
-                        `**${copilotItem.name}**\n\nType: Collection (contains multiple files)\nSize: ${(copilotItem.file.size / 1024).toFixed(1)}KB\nRepo: ${copilotItem.repo ? copilotItem.repo.owner + '/' + copilotItem.repo.repo : ''}\n\nClick to preview or download collection`
+                        `**${copilotItem.name}**\n\nType: Plugin (contains multiple files)\nSize: ${(copilotItem.file.size / 1024).toFixed(1)}KB\nRepo: ${copilotItem.repo ? copilotItem.repo.owner + '/' + copilotItem.repo.repo : ''}\n\nClick to preview or download plugin`
                     );
                 } else {
                     this.tooltip = new vscode.MarkdownString(
@@ -77,7 +87,7 @@ export class AwesomeCopilotTreeItem extends vscode.TreeItem {
                 // If update available, use a badge/indicator overlay on the icon
                 let baseIconId: string;
                 switch (copilotItem.category) {
-                    case CopilotCategory.Collections:
+                    case CopilotCategory.Plugins:
                         baseIconId = 'comment-discussion';
                         break;
                     case CopilotCategory.Instructions:
@@ -205,7 +215,7 @@ export class AwesomeCopilotProvider implements vscode.TreeDataProvider<AwesomeCo
         }
 
         const repoData = this.repoItems.get(repoKey)!;
-        const categories = [CopilotCategory.Collections, CopilotCategory.Instructions, CopilotCategory.Prompts, CopilotCategory.Agents, CopilotCategory.Skills];
+        const categories = [CopilotCategory.Plugins, CopilotCategory.Instructions, CopilotCategory.Prompts, CopilotCategory.Agents, CopilotCategory.Skills];
 
         const allItems: CopilotItem[] = [];
 
@@ -275,11 +285,11 @@ export class AwesomeCopilotProvider implements vscode.TreeDataProvider<AwesomeCo
             // Return categories for this repository
             return [
                 new AwesomeCopilotTreeItem(
-                    CATEGORY_LABELS[CopilotCategory.Collections],
+                    CATEGORY_LABELS[CopilotCategory.Plugins],
                     vscode.TreeItemCollapsibleState.Collapsed,
                     'category',
                     undefined,
-                    CopilotCategory.Collections,
+                    CopilotCategory.Plugins,
                     element.repo
                 ),
                 new AwesomeCopilotTreeItem(
@@ -392,7 +402,7 @@ export class AwesomeCopilotProvider implements vscode.TreeDataProvider<AwesomeCo
         }
 
         const repos = RepoStorage.getSources(this.context);
-        const categories = [CopilotCategory.Collections, CopilotCategory.Instructions, CopilotCategory.Prompts, CopilotCategory.Agents, CopilotCategory.Skills];
+        const categories = [CopilotCategory.Plugins, CopilotCategory.Instructions, CopilotCategory.Prompts, CopilotCategory.Agents, CopilotCategory.Skills];
 
         // Collect all items for update checking
         const allItems: CopilotItem[] = [];

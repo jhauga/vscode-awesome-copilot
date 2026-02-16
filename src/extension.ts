@@ -4,7 +4,7 @@ import * as vscode from 'vscode';
 import { AwesomeCopilotProvider, AwesomeCopilotTreeItem } from './treeProvider';
 import { GitHubService } from './githubService';
 import { CopilotPreviewProvider } from './previewProvider';
-import { CopilotItem, FOLDER_PATHS, CopilotCategory } from './types';
+import { CopilotItem, FOLDER_PATHS, CopilotCategory, KIND_TO_CATEGORY } from './types';
 import * as path from 'path';
 import * as fs from 'fs';
 import { RepoStorage } from './repoStorage';
@@ -15,6 +15,7 @@ import axios from 'axios';
 import * as https from 'https';
 import { createLogger, createLoggerWithConfigMonitoring, Logger } from '@timheuer/vscode-ext-logger';
 import { initializeLogger, getLogger } from './logger';
+import { generateNoteContent } from './views/note.vscode-awesome-copilot-extension';
 
 // Global logger instance
 let logger: Logger;
@@ -167,7 +168,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
                 // Validate repo structure (check that at least one content folder exists)
                 try {
-                    const cats = ['collections', 'instructions', 'prompts', 'agents', 'skills'];
+                    const cats = ['plugins', 'instructions', 'prompts', 'agents', 'skills'];
                     const foundFolders: string[] = [];
                     const missingFolders: string[] = [];
 
@@ -388,7 +389,7 @@ export async function activate(context: vscode.ExtensionContext) {
                         });
 
                         const retryChoice = await vscode.window.showErrorMessage(
-                            `🔍 Repository Not Found or No Valid Content\n\nThe repository ${owner}/${repo} was not found or doesn't contain any of the required content folders (collections, instructions, prompts).\n\nPlease verify:\n1. Repository exists at: ${repoUrl}\n2. Repository is public or you have access\n3. Repository contains at least one of: collections, instructions, or prompts folders\n\nNote: A repository only needs to have ONE of these folders, not all of them.\n\nDebug: Input="${input}", Owner="${owner}", Repo="${repo}"`,
+                            `🔍 Repository Not Found or No Valid Content\n\nThe repository ${owner}/${repo} was not found or doesn't contain any of the required content folders (plugins, instructions, prompts).\n\nPlease verify:\n1. Repository exists at: ${repoUrl}\n2. Repository is public or you have access\n3. Repository contains at least one of: plugins, instructions, or prompts folders\n\nNote: A repository only needs to have ONE of these folders, not all of them.\n\nDebug: Input="${input}", Owner="${owner}", Repo="${repo}"`,
                             'Check Repository',
                             'Retry',
                             'Cancel'
@@ -809,229 +810,225 @@ async function downloadCopilotItem(item: CopilotItem, githubService: GitHubServi
         const targetFolder = FOLDER_PATHS[item.category];
         const fullTargetPath = path.join(workspaceFolder.uri.fsPath, targetFolder);
 
-        // Collections are YAML files that contain metadata about files to download
-        if (item.category === CopilotCategory.Collections) {
-            // Parse the collection YAML file and get raw content
-            const { metadata, rawContent } = await githubService.parseCollectionYaml(item.file.download_url);
+        // Plugins: parse plugin.json and download individual items to category folders
+        if (item.category === CopilotCategory.Plugins && item.file.type === 'dir') {
+            // Fetch and parse plugin.json
+            let pluginResult;
+            try {
+                pluginResult = await githubService.parsePluginJson(item.repo, item.file.path);
+            } catch (error) {
+                vscode.window.showErrorMessage(`Failed to read plugin metadata: ${error}`);
+                return;
+            }
 
-            // Show confirmation dialog with collection details
-            const proceed = await vscode.window.showInformationMessage(
-                `Download collection "${metadata.name}"?\n\n${metadata.description}\n\nThis will download ${metadata.items.length} item(s).`,
+            const metadata = pluginResult.metadata;
+            const pluginItems = metadata.items;
+
+            if (pluginItems.length === 0) {
+                vscode.window.showWarningMessage(`Plugin "${metadata.name}" has no items to download.`);
+                return;
+            }
+
+            // Show confirmation dialog with plugin details
+            const confirm = await vscode.window.showInformationMessage(
+                `Download plugin "${metadata.name}"?\n\n${metadata.description}\n\n${pluginItems.length} item(s) will be saved to their category folders.`,
                 { modal: true },
                 'Download'
             );
 
-            if (proceed !== 'Download') {
+            if (confirm !== 'Download') {
                 return;
             }
 
-            // Download the collection YAML file itself using the already-fetched content
-            const collectionYmlPath = path.join(fullTargetPath, item.name);
-            if (!fs.existsSync(fullTargetPath)) {
-                fs.mkdirSync(fullTargetPath, { recursive: true });
-            }
-            fs.writeFileSync(collectionYmlPath, rawContent, 'utf8');
-
-            // Download sibling markdown file if it exists (e.g., file.collection.yml -> file.md)
-            let baseName = item.name;
-            if (baseName.toLowerCase().endsWith('.collection.yml')) {
-                baseName = baseName.slice(0, -'.collection.yml'.length);
-            } else if (baseName.toLowerCase().endsWith('.yml')) {
-                baseName = baseName.slice(0, -'.yml'.length);
-            }
-            const siblingMdName = `${baseName}.md`;
-
-            try {
-                const url = new URL(item.file.download_url);
-                const segments = url.pathname.split('/');
-                if (segments.length > 0) {
-                    segments[segments.length - 1] = siblingMdName;
-                    url.pathname = segments.join('/');
-                }
-                const siblingUrl = url.toString();
-                const siblingContent = await githubService.getFileContent(siblingUrl);
-                const siblingFilePath = path.join(fullTargetPath, siblingMdName);
-                fs.writeFileSync(siblingFilePath, siblingContent, 'utf8');
-            } catch (error) {
-                // Sibling markdown file may not exist, that's ok
-                getLogger().debug(`Sibling markdown file ${siblingMdName} not found (this is normal)`);
-            }
-
-            // Track downloaded files for summary
+            // Download each item from plugin.json
+            let downloadedCount = 0;
+            let errorCount = 0;
             const downloadedFiles: string[] = [];
             const failedFiles: string[] = [];
 
-            // Download each item in the collection with delay between downloads
-            for (let i = 0; i < metadata.items.length; i++) {
-                const collectionItem = metadata.items[i];
-
+            for (const pluginItem of pluginItems) {
                 try {
-                    // Determine the category based on the kind
-                    let targetCategory: CopilotCategory;
-                    switch (collectionItem.kind) {
-                        case 'instruction':
-                            targetCategory = CopilotCategory.Instructions;
-                            break;
-                        case 'prompt':
-                            targetCategory = CopilotCategory.Prompts;
-                            break;
-                        case 'agent':
-                            targetCategory = CopilotCategory.Agents;
-                            break;
-                        case 'skill':
-                            targetCategory = CopilotCategory.Skills;
-                            break;
-                        default:
-                            getLogger().warn(`Unknown collection item kind: ${collectionItem.kind}`);
-                            continue;
+                    const category = KIND_TO_CATEGORY[pluginItem.kind];
+                    if (!category) {
+                        getLogger().warn(`Unknown kind "${pluginItem.kind}" for item ${pluginItem.path}, skipping.`);
+                        failedFiles.push(`${pluginItem.path} (unknown kind: ${pluginItem.kind})`);
+                        errorCount++;
+                        continue;
                     }
 
-                    const isSkill = collectionItem.kind === 'skill';
+                    const categoryFolder = FOLDER_PATHS[category];
+                    const fullCategoryPath = path.join(workspaceFolder.uri.fsPath, categoryFolder);
 
-                    // Extract filename from path
-                    const fileName = path.basename(collectionItem.path);
-
-                    if (isSkill) {
-                        getLogger().debug(`Fetching file list for ${targetCategory} to find skill at path: ${collectionItem.path}`);
-                    } else {
-                        getLogger().debug(`Fetching file list for ${targetCategory} to find file: ${fileName}`);
-                    }
-                    const categoryFiles = await githubService.getFilesByRepo(item.repo, targetCategory);
-
-                    // Find the matching entry
-                    const matchingFile = categoryFiles.find(file => {
-                        if (isSkill) {
-                            const filePath = (file as any).path as string | undefined;
-                            if (!filePath) {
-                                return false;
-                            }
-                            // Match the directory itself or any file within it
-                            return filePath === collectionItem.path || filePath.startsWith(collectionItem.path + '/');
-                        }
-                        // Non-skill: match by filename as before
-                        return file.name === fileName;
-                    });
-
-                    if (!matchingFile) {
-                        if (isSkill) {
-                            throw new Error(`Skill at path ${collectionItem.path} not found in ${targetCategory} category`);
-                        }
-                        throw new Error(`File ${fileName} not found in ${targetCategory} category`);
+                    // Ensure category directory exists
+                    if (!fs.existsSync(fullCategoryPath)) {
+                        fs.mkdirSync(fullCategoryPath, { recursive: true });
                     }
 
-                    getLogger().debug(`Found ${isSkill ? 'skill item' : 'file'}, downloading from: ${matchingFile.download_url}`);
+                    if (pluginItem.kind === 'skill') {
+                        // Skills are directories: use recursive download
+                        const skillDirName = pluginItem.path.split('/').pop() || pluginItem.path;
+                        const targetSkillPath = path.join(fullCategoryPath, skillDirName);
 
-                    // Build the target folder path
-                    const itemTargetFolder = FOLDER_PATHS[targetCategory];
-                    const itemFullTargetPath = path.join(workspaceFolder.uri.fsPath, itemTargetFolder);
-
-                    // Create directory if it doesn't exist
-                    if (!fs.existsSync(itemFullTargetPath)) {
-                        fs.mkdirSync(itemFullTargetPath, { recursive: true });
-                    }
-
-                    const itemTargetFilePath = path.join(itemFullTargetPath, fileName);
-
-                    // Handle skills differently - they are directories with multiple files
-                    if (isSkill) {
-                        const targetSkillPath = itemTargetFilePath;
-
-                        // Check if folder exists and remove if it does
                         if (fs.existsSync(targetSkillPath)) {
                             fs.rmSync(targetSkillPath, { recursive: true, force: true });
                         }
-
-                        // Create skill folder
                         fs.mkdirSync(targetSkillPath, { recursive: true });
 
-                        // Get all contents of the skill folder recursively
-                        const contents = await githubService.getDirectoryContents(item.repo, collectionItem.path);
-
-                        // Download each file in the skill folder
+                        const contents = await githubService.getDirectoryContents(item.repo, pluginItem.path);
                         for (const fileItem of contents) {
                             if (fileItem.type === 'file') {
-                                // Calculate relative path within the skill folder
-                                const skillFolderPath = collectionItem.path.endsWith('/') ? collectionItem.path : collectionItem.path + '/';
+                                const skillFolderPath = pluginItem.path.endsWith('/') ? pluginItem.path : pluginItem.path + '/';
                                 const relativePath = fileItem.path.startsWith(skillFolderPath)
                                     ? fileItem.path.substring(skillFolderPath.length)
                                     : fileItem.path;
                                 const targetFilePath = path.join(targetSkillPath, relativePath);
 
-                                // Create parent directory if needed
                                 const parentDir = path.dirname(targetFilePath);
                                 if (!fs.existsSync(parentDir)) {
                                     fs.mkdirSync(parentDir, { recursive: true });
                                 }
 
-                                // Download and save file
                                 const content = await githubService.getFileContent(fileItem.download_url);
                                 fs.writeFileSync(targetFilePath, content, 'utf8');
                             }
                         }
-
-                        downloadedFiles.push(`${collectionItem.kind}: ${fileName} (${contents.filter(f => f.type === 'file').length} files)`);
+                        downloadedFiles.push(`${pluginItem.kind}: ${skillDirName} (${contents.filter(f => f.type === 'file').length} files)`);
                     } else {
-                        // Non-skill items are single files
-                        // Download the file using the download_url from GitHub API
-                        const fileContent = await githubService.getFileContent(matchingFile.download_url);
-                        fs.writeFileSync(itemTargetFilePath, fileContent, 'utf8');
-                        downloadedFiles.push(`${collectionItem.kind}: ${fileName}`);
-                    }
-                    if (i < metadata.items.length - 1) {
-                        await new Promise(resolve => setTimeout(resolve, 500));
-                    }
-                } catch (error) {
-                    let failureReason = 'Unknown error';
+                        // Single file items (instruction, prompt, agent)
+                        const filename = pluginItem.path.split('/').pop() || pluginItem.path;
+                        const targetFilePath = path.join(fullCategoryPath, filename);
 
-                    if (axios.isAxiosError(error)) {
-                        if (error.response?.status === 404) {
-                            failureReason = 'File not found in repository (check YAML path and repository contents).';
-                        } else if (
-                            !error.response ||
-                            error.code === 'ENOTFOUND' ||
-                            error.code === 'ECONNREFUSED' ||
-                            error.code === 'ECONNRESET' ||
-                            error.code === 'ETIMEDOUT'
-                        ) {
-                            failureReason = 'Network error while downloading file (check internet connection or GitHub availability).';
-                        } else if (error.response?.status) {
-                            failureReason = `HTTP error ${error.response.status} while downloading file.`;
-                        }
-                        getLogger().error(
-                            `Failed to download ${collectionItem.path} (${failureReason})`,
-                            error
-                        );
-                    } else if (error instanceof Error) {
-                        failureReason = error.message;
-                        getLogger().error(
-                            `Failed to download ${collectionItem.path} (${failureReason})`,
-                            error
-                        );
-                    } else {
-                        getLogger().error(`Failed to download ${collectionItem.path}:`, error);
+                        const fileData = await githubService.getFileContentByPath(item.repo, pluginItem.path);
+                        fs.writeFileSync(targetFilePath, fileData.content, 'utf8');
+                        downloadedFiles.push(`${pluginItem.kind}: ${filename}`);
                     }
 
-                    failedFiles.push(`${collectionItem.kind}: ${collectionItem.path} – ${failureReason}`);
+                    downloadedCount++;
+                } catch (itemError) {
+                    getLogger().error(`Failed to download plugin item ${pluginItem.path}:`, itemError);
+                    failedFiles.push(`${pluginItem.path}`);
+                    errorCount++;
                 }
             }
 
+            // Save plugin files locally (plugin.json, agents/, commands/, README.md, NOTE)
+            const pluginDir = path.join(fullTargetPath, metadata.id || item.name);
+            if (!fs.existsSync(pluginDir)) {
+                fs.mkdirSync(pluginDir, { recursive: true });
+            }
+
+            // Save plugin.json mirroring upstream structure (.github/plugin/plugin.json)
+            try {
+                const pluginJsonDir = path.join(pluginDir, '.github', 'plugin');
+                if (!fs.existsSync(pluginJsonDir)) {
+                    fs.mkdirSync(pluginJsonDir, { recursive: true });
+                }
+                fs.writeFileSync(
+                    path.join(pluginJsonDir, 'plugin.json'),
+                    JSON.stringify(metadata, null, 2),
+                    'utf8'
+                );
+            } catch (metaSaveError) {
+                getLogger().warn('Failed to save plugin.json locally:', metaSaveError);
+            }
+
+            // Download agents/, commands/, and README.md from the plugin directory
+            try {
+                const pluginContents = await githubService.getDirectoryContents(item.repo, item.file.path);
+                const topLevelItems = pluginContents.filter(f => {
+                    // Only top-level entries (direct children of the plugin dir)
+                    const relativePath = f.path.substring(item.file.path.length + 1);
+                    return !relativePath.includes('/');
+                });
+
+                // Download agents/ folder if it exists
+                const agentsDir = topLevelItems.find(f => f.type === 'dir' && f.name === 'agents');
+                if (agentsDir) {
+                    const agentsLocalDir = path.join(pluginDir, 'agents');
+                    if (!fs.existsSync(agentsLocalDir)) {
+                        fs.mkdirSync(agentsLocalDir, { recursive: true });
+                    }
+                    const agentFiles = pluginContents.filter(
+                        f => f.type === 'file' && f.path.startsWith(agentsDir.path + '/')
+                    );
+                    for (const agentFile of agentFiles) {
+                        try {
+                            const relativePath = agentFile.path.substring(agentsDir.path.length + 1);
+                            const targetFilePath = path.join(agentsLocalDir, relativePath);
+                            const parentDir = path.dirname(targetFilePath);
+                            if (!fs.existsSync(parentDir)) {
+                                fs.mkdirSync(parentDir, { recursive: true });
+                            }
+                            const content = await githubService.getFileContent(agentFile.download_url);
+                            fs.writeFileSync(targetFilePath, content, 'utf8');
+                        } catch (agentErr) {
+                            getLogger().warn(`Failed to download agent file ${agentFile.name}:`, agentErr);
+                        }
+                    }
+                }
+
+                // Download commands/ folder if it exists
+                const commandsDir = topLevelItems.find(f => f.type === 'dir' && f.name === 'commands');
+                if (commandsDir) {
+                    const commandsLocalDir = path.join(pluginDir, 'commands');
+                    if (!fs.existsSync(commandsLocalDir)) {
+                        fs.mkdirSync(commandsLocalDir, { recursive: true });
+                    }
+                    const commandFiles = pluginContents.filter(
+                        f => f.type === 'file' && f.path.startsWith(commandsDir.path + '/')
+                    );
+                    for (const commandFile of commandFiles) {
+                        try {
+                            const relativePath = commandFile.path.substring(commandsDir.path.length + 1);
+                            const targetFilePath = path.join(commandsLocalDir, relativePath);
+                            const parentDir = path.dirname(targetFilePath);
+                            if (!fs.existsSync(parentDir)) {
+                                fs.mkdirSync(parentDir, { recursive: true });
+                            }
+                            const content = await githubService.getFileContent(commandFile.download_url);
+                            fs.writeFileSync(targetFilePath, content, 'utf8');
+                        } catch (cmdErr) {
+                            getLogger().warn(`Failed to download command file ${commandFile.name}:`, cmdErr);
+                        }
+                    }
+                }
+
+                // Download README.md if it exists
+                const readmeFile = topLevelItems.find(f => f.type === 'file' && f.name === 'README.md');
+                let readmeContent = '';
+                if (readmeFile) {
+                    try {
+                        readmeContent = await githubService.getFileContent(readmeFile.download_url);
+                        fs.writeFileSync(path.join(pluginDir, 'README.md'), readmeContent, 'utf8');
+                    } catch (readmeErr) {
+                        getLogger().warn('Failed to download plugin README.md:', readmeErr);
+                    }
+                }
+
+                // Generate NOTE.VSCODE-AWESOME-COPILOT-EXTENSION.md with slash command mappings
+                const pluginName = metadata.id || item.name;
+                const noteContent = generateNoteContent(readmeContent, pluginName);
+                fs.writeFileSync(
+                    path.join(pluginDir, 'NOTE.VSCODE-AWESOME-COPILOT-EXTENSION.md'),
+                    noteContent,
+                    'utf8'
+                );
+            } catch (pluginFilesError) {
+                getLogger().warn('Failed to download additional plugin files:', pluginFilesError);
+            }
+
+            // Record download and clear cache
+            await downloadTracker.recordDownload(item);
+            githubService.clearCategoryCache(item.repo, item.category);
+
             // Show summary
-            let summaryMessage = `Collection "${metadata.name}" downloaded!\n\n`;
-            summaryMessage += `✓ ${downloadedFiles.length} file(s) downloaded successfully`;
-            if (failedFiles.length > 0) {
-                summaryMessage += `\n✗ ${failedFiles.length} file(s) failed`;
+            let summaryMessage = `Plugin "${metadata.name}" downloaded!\n\n`;
+            summaryMessage += `Downloaded ${downloadedCount}/${pluginItems.length} item(s) successfully.`;
+            if (errorCount > 0) {
+                summaryMessage += `\n${errorCount} item(s) failed.`;
             }
 
-            const action = await vscode.window.showInformationMessage(
-                summaryMessage,
-                'Open Collection File'
-            );
-
-            if (action === 'Open Collection File') {
-                const document = await vscode.workspace.openTextDocument(collectionYmlPath);
-                await vscode.window.showTextDocument(document);
-            }
-
+            vscode.window.showInformationMessage(summaryMessage);
             return;
         }
 
@@ -1229,6 +1226,46 @@ async function previewCopilotItem(item: CopilotItem, githubService: GitHubServic
                 const doc = await vscode.workspace.openTextDocument(previewUri);
                 await vscode.window.showTextDocument(doc, { preview: true });
             }
+        } else if (item.category === CopilotCategory.Plugins && item.file.type === 'dir') {
+            // For Plugin directories, show plugin.json metadata + README.md
+            let previewContent = '';
+
+            // Fetch plugin.json for metadata
+            try {
+                const pluginResult = await githubService.parsePluginJson(item.repo, item.file.path);
+                const meta = pluginResult.metadata;
+                previewContent += `# ${meta.name}\n\n`;
+                previewContent += `${meta.description}\n\n`;
+                if (meta.version) { previewContent += `**Version:** ${meta.version}\n`; }
+                if (meta.author?.name) { previewContent += `**Author:** ${meta.author.name}\n`; }
+                if (meta.license) { previewContent += `**License:** ${meta.license}\n`; }
+                if (meta.tags?.length) { previewContent += `**Tags:** ${meta.tags.join(', ')}\n`; }
+                previewContent += `\n**Items (${meta.items.length}):**\n`;
+                meta.items.forEach(pi => {
+                    const filename = pi.path.split('/').pop() || pi.path;
+                    previewContent += `- ${filename} (${pi.kind})\n`;
+                });
+                previewContent += '\n---\n\n';
+            } catch {
+                // plugin.json not available, continue without metadata
+            }
+
+            // Fetch README.md for additional preview content
+            const contents = await githubService.getDirectoryContents(item.repo, item.file.path);
+            const readmeMdFile = contents.find(f => f.name === 'README.md' && f.type === 'file');
+
+            if (readmeMdFile) {
+                const readmeContent = await githubService.getFileContent(readmeMdFile.download_url);
+                previewContent += readmeContent;
+            } else if (!previewContent) {
+                previewContent = `# ${item.name}\n\n*(No plugin metadata or README found)*`;
+            }
+
+            item.content = previewContent;
+            const previewUri = vscode.Uri.parse(`copilot-preview:${encodeURIComponent(item.name + '/README.md')}`);
+            previewProvider.setItem(previewUri, item);
+            const doc = await vscode.workspace.openTextDocument(previewUri);
+            await vscode.window.showTextDocument(doc, { preview: true });
         } else {
             // Regular file preview (for other categories)
             // Fetch content if not already cached

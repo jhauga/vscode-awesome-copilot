@@ -34,7 +34,7 @@ export interface CopilotItem {
 }
 
 export enum CopilotCategory {
-    Collections = 'collections',
+    Plugins = 'plugins',
     Instructions = 'instructions',
     Prompts = 'prompts',
     Agents = 'agents',
@@ -51,7 +51,7 @@ export interface CacheEntry {
 }
 
 export const CATEGORY_LABELS: Record<CopilotCategory, string> = {
-    [CopilotCategory.Collections]: 'Collections',
+    [CopilotCategory.Plugins]: 'Plugins',
     [CopilotCategory.Instructions]: 'Instructions',
     [CopilotCategory.Prompts]: 'Prompts',
     [CopilotCategory.Agents]: 'Agents',
@@ -59,32 +59,48 @@ export const CATEGORY_LABELS: Record<CopilotCategory, string> = {
 };
 
 export const FOLDER_PATHS: Record<CopilotCategory, string> = {
-    [CopilotCategory.Collections]: '.github/collections',
+    [CopilotCategory.Plugins]: '.github/plugins',
     [CopilotCategory.Instructions]: '.github/instructions',
     [CopilotCategory.Prompts]: '.github/prompts',
     [CopilotCategory.Agents]: '.github/agents',
     [CopilotCategory.Skills]: '.github/skills'
 };
 
-// Collection metadata structure from YAML files
-export interface CollectionMetadata {
-    id: string;
+// Path to plugin.json within a plugin directory
+export const PLUGIN_JSON_RELATIVE_PATH = '.github/plugin/plugin.json';
+
+// Map plugin item "kind" values to CopilotCategory for local save paths
+export const KIND_TO_CATEGORY: Record<string, CopilotCategory> = {
+    'instruction': CopilotCategory.Instructions,
+    'prompt': CopilotCategory.Prompts,
+    'agent': CopilotCategory.Agents,
+    'skill': CopilotCategory.Skills,
+};
+
+// Plugin metadata structure from plugin.json files
+export interface PluginMetadata {
+    id?: string;
     name: string;
     description: string;
+    version?: string;
+    author?: { name: string };
+    repository?: string;
+    license?: string;
+    featured?: boolean;
     tags?: string[];
-    items: CollectionItem[];
+    items: PluginItem[];
     display?: {
-        ordering?: 'alpha' | 'custom';
+        ordering?: 'alpha' | 'custom' | 'manual';
         show_badge?: boolean;
     };
 }
 
-export interface CollectionItem {
+export interface PluginItem {
     path: string;
     kind: 'instruction' | 'prompt' | 'agent' | 'skill';
 }
 
-export interface CollectionParseResult {
-    metadata: CollectionMetadata;
+export interface PluginParseResult {
+    metadata: PluginMetadata;
     rawContent: string;
 }
